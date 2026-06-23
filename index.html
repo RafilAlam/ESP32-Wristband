@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #f4f4f9; padding: 50px; }
+        button { padding: 15px 30px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #data-box { margin-top: 30px; font-size: 24px; font-weight: bold; color: #333; }
+        #status { color: #666; font-style: italic; }
+    </style>
+</head>
+<body>
+
+    <h1>ESP32 Sensor Data</h1>
+    <button id="connectBtn">Connect to ESP32</button>
+    <p id="status">Disconnected</p>
+
+    <div id="data-box">Sensor Value: <span id="value">--</span></div>
+
+    <script>
+        const SERVICE_UUID = "03e0be01-38fe-41c8-a7e5-c294732282b7";
+        const CHARACTERISTIC_UUID = "d5b00152-835a-4bf0-91c6-d9e15ebb270c";
+
+        const connectBtn = document.getElementById('connectBtn');
+        const statusText = document.getElementById('status');
+        const valueDisplay = document.getElementById('value');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                statusText.innerText = "Scanning...";
+
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                statusText.innerText = `Connecting to ${device.name}...`;
+
+                const server = await device.gatt.connect();
+
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+                statusText.innerText = "Connected! Waiting for data...";
+
+                await characteristic.startNotifications();
+
+                characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                    const value = event.target.value;
+
+                    const decoder = new TextDecoder('utf-8');
+                    const decodedString = decoder.decode(value);
+
+                    valueDisplay.innerText = decodedString;
+                });
+
+                device.addEventListener('gattserverdisconnected', () => {
+                    statusText.innerText = "Disconnected";
+                    valueDisplay.innerText = "--";
+                });
+            } catch (error) {
+                console.error(error);
+                statusText.innerText = "Error " + error.message;
+            }
+        })
+    </script>
+</body>
+</html>
