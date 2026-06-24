@@ -1,5 +1,7 @@
 #include <PulseSensorPlayground.h>
 #include "LIS3DHTR.h"
+#include "MAX30105.h"
+#include "heartRate.h"
 #include <Wire.h>
 
 #include <BLE2902.h>
@@ -24,14 +26,17 @@ class MyServerCallbacks: public BLEServerCallbacks {
 };
 
 LIS3DHTR<TwoWire> LIS;
+MAX30105 particleSensor;
 
 int ResetPin = 10;
 int BuzzerPin = 0;
 
+// Buzzer
 unsigned long lastbuzzertoggle = 0;
 unsigned long buzzpulsewidth = 50;
 bool buzzing = false;
 
+// Accelerometer
 unsigned long maxfreefallTime = 1000;
 unsigned long lastfreefallTime = 0;
 float freefallThreshold = 0.5;
@@ -40,6 +45,24 @@ float impactThreshold = 5.0;
 bool fallen = false;
 bool freefalling = false;
 
+// Pulse Sensor
+const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
+byte rates[RATE_SIZE]; //Array of heart rates
+byte rateSpot = 0;
+long lastBeat = 0; //Time at which the last beat occurred
+
+float beatsPerMinute;
+int beatAvg;
+
+// Bluetooth
+struct __attribute__((packed)) SensorPayload {
+  float acceleration;
+  uint8_t heartRate;
+  uint8_t spo2;
+};
+
+SensorPayload myData;
+
 unsigned long mstime = 0;
 void setup() {
   Serial.begin(115200);
@@ -47,13 +70,25 @@ void setup() {
   pinMode(BuzzerPin, OUTPUT);
   pinMode(ResetPin, INPUT_PULLUP);
 
+    // Initialize sensor
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) //Use default I2C port, 400kHz speed
+  {
+    //Serial.println("MAX30105 was not found. Please check wiring/power. ");
+    while (1);
+  }
+  //Serial.println("Place your index finger on the sensor with steady pressure.");
+
+  particleSensor.setup(); //Configure sensor with default settings
+  particleSensor.setPulseAmplitudeRed(0x0A); //Turn Red LED to low to indicate sensor is running
+  particleSensor.setPulseAmplitudeGreen(0); //Turn off Green LED
+
   LIS.begin(Wire, 0x19);
   delay(100);
   LIS.setOutputDataRate(LIS3DHTR_DATARATE_50HZ);
   LIS.setHighSolution(true);
 
   if (!LIS) {
-    Serial.println("LIS3DHTR had problems connecting.");
+    //Serial.println("LIS3DHTR had problems connecting.");
     while(1);
     return;
   }
@@ -80,22 +115,59 @@ void setup() {
   pAdvertising->setScanResponse(true);
   pAdvertising->setMinPreferred(0x06);
   BLEDevice::startAdvertising();
-  Serial.println("BLE Device is advertising! Connect your phone.");
+  //Serial.println("BLE Device is advertising! Connect your phone.");
 }
 
 void loop() {
   mstime = millis();
 
+  // Pulse Sensor
+  long irValue = particleSensor.getIR();
+
+  if (checkForBeat(irValue) == true)
+  {
+    //We sensed a beat!
+    long delta = millis() - lastBeat;
+    lastBeat = millis();
+
+    beatsPerMinute = 60 / (delta / 1000.0);
+
+    if (beatsPerMinute < 255 && beatsPerMinute > 20)
+    {
+      rates[rateSpot++] = (byte)beatsPerMinute; //Store this reading in the array
+      rateSpot %= RATE_SIZE; //Wrap variable
+
+      //Take average of readings
+      beatAvg = 0;
+      for (byte x = 0 ; x < RATE_SIZE ; x++)
+        beatAvg += rates[x];
+      beatAvg /= RATE_SIZE;
+    }
+  }
+
+  //Serial.print("IR=");
+  //Serial.print(irValue);
+  //Serial.print(", BPM=");
+  //Serial.print(beatsPerMinute);
+  //Serial.print(", Avg BPM=");
+  //Serial.print(beatAvg);
+
+  //if (irValue < 50000)
+    //Serial.print(" No finger?");
+
+  //Serial.println();
+
+  // Accelerometer
   float x = LIS.getAccelerationX();
   float y = LIS.getAccelerationY();
   float z = LIS.getAccelerationZ();
   float mag = sqrt(x*x + y*y + z*z);
   
-  Serial.print(0);
-  Serial.print(" ");
-  Serial.println(18);
+  //Serial.print(0);
+  //Serial.print(" ");
+  //Serial.println(18);
 
-  Serial.print("magnitude:"); Serial.println(mag);
+  //Serial.print("magnitude:"); Serial.println(mag);
   if (mag < freefallThreshold) {
     freefalling = true;
     lastfreefallTime = mstime;
@@ -123,11 +195,17 @@ void loop() {
   }
 
   if (deviceConnected) {
-    String newValue = "Acceleration Magnitude: " + String(mag);
-    pCharacteristic->setValue(newValue.c_str());
+    myData.acceleration = mag;
+    myData.heartRate = beatAvg;
+    myData.spo2 = 0;
+
+    uint8_t* bytePointer = (uint8_t*)&myData;
+    size_t payloadSize = sizeof(SensorPayload);
+    
+    pCharacteristic->setValue(bytePointer, payloadSize);
     pCharacteristic->notify();
 
-    Serial.println("Sent " + newValue);
+    //Serial.println("Sent " + newValue);
   }
 
   delay(20);

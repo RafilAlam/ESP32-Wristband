@@ -55,10 +55,11 @@
                 characteristic.addEventListener('characteristicvaluechanged', (event) => {
                     const value = event.target.value;
 
-                    const decoder = new TextDecoder('utf-8');
-                    const decodedString = decoder.decode(value);
+                    const acceleration = value.getFloat32(0, true);
+                    const heartRate = value.getUint8(4);
+                    const spo2 = value.getUint8(5);
 
-                    valueDisplay.innerText = decodedString;
+                    valueDisplay.innerText = `Acceleration: ${acceleration}\n BPM: ${heartRate} \n SpO2: ${spo2}`;
                 });
 
                 device.addEventListener('gattserverdisconnected', () => {
