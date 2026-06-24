@@ -28,12 +28,19 @@ LIS3DHTR<TwoWire> LIS;
 int ResetPin = 10;
 int BuzzerPin = 0;
 
+unsigned long lastbuzzertoggle = 0;
+unsigned long buzzpulsewidth = 50;
+bool buzzing = false;
+
 unsigned long maxfreefallTime = 1000;
 unsigned long lastfreefallTime = 0;
 float freefallThreshold = 0.5;
 float impactThreshold = 5.0;
+
+bool fallen = false;
 bool freefalling = false;
 
+unsigned long mstime = 0;
 void setup() {
   Serial.begin(115200);
 
@@ -44,6 +51,12 @@ void setup() {
   delay(100);
   LIS.setOutputDataRate(LIS3DHTR_DATARATE_50HZ);
   LIS.setHighSolution(true);
+
+  if (!LIS) {
+    Serial.println("LIS3DHTR had problems connecting.");
+    while(1);
+    return;
+  }
 
   BLEDevice::init("ESP32-Wristband");
 
@@ -71,11 +84,7 @@ void setup() {
 }
 
 void loop() {
-  if (!LIS) {
-    Serial.println("LIS3DHTR had problems connecting.");
-    while(1);
-    return;
-  }
+  mstime = millis();
 
   float x = LIS.getAccelerationX();
   float y = LIS.getAccelerationY();
@@ -89,20 +98,28 @@ void loop() {
   Serial.print("magnitude:"); Serial.println(mag);
   if (mag < freefallThreshold) {
     freefalling = true;
-    lastfreefallTime = millis();
+    lastfreefallTime = mstime;
   }
 
-  if (millis() - lastfreefallTime > maxfreefallTime) {
+  if (mstime - lastfreefallTime > maxfreefallTime) {
     freefalling = false;
   }
 
   if (freefalling && mag > impactThreshold) {
-    digitalWrite(BuzzerPin, 1);
+    fallen = true;
     freefalling = false;
+  }
+
+  if (fallen && mstime - lastbuzzertoggle > buzzpulsewidth) {
+    lastbuzzertoggle = mstime;
+    buzzing = !buzzing;
+    digitalWrite(BuzzerPin, buzzing);
   }
 
   if (digitalRead(ResetPin) == 0) {
     digitalWrite(BuzzerPin, 0);
+    fallen = false;
+    buzzing = false;
   }
 
   if (deviceConnected) {
