@@ -5,18 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #f4f4f9; padding: 50px; }
-        button { padding: 15px 30px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        button:hover { background: #0056b3; }
+        body { font-family: Arial, sans-serif; color: rgb(121, 84, 67); text-align: left; background: #d1c9c9; padding: 50px; }
+        h1 { font-size: 50px; font-family: Verdana; font-weight: bold; -webkit-text-stroke: 2px rgb(51, 39, 26); margin: 0px;}
+        .horizontal-container { display: flex; align-items: center; gap: 5px; }
+        #connectBtn { position:fixed; left: 50%; transform: translate(-50%); bottom:30px; padding: 15px 10px; font-size: 20px; font-weight: bold; letter-spacing: 1px; background: #007bff; color: white; border: 4px solid #7398c0; border-radius: 25px; cursor: pointer; }
         #data-box { margin-top: 30px; font-size: 24px; font-weight: bold; color: #333; }
-        #status { color: #666; font-style: italic; }
+        #status { color: #666; font-style: italic; margin: 0px; letter-spacing: 1px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h1>ESP32 Sensor Data</h1>
-    <button id="connectBtn">Connect to ESP32</button>
-    <p id="status">Disconnected</p>
+    <h1>Home</h1>
+    <button id="connectBtn">Connect Wristband</button>
+    <div class="horizontal-container">
+        <p id="status">Disconnected</p>
+    </div>
 
     <div id="data-box">Sensor Value: <span id="value">--</span></div>
 
@@ -45,7 +48,7 @@
 
                 const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
-                statusText.innerText = "Connected! Waiting for data...";
+                statusText.innerText = "Connected";
 
                 await characteristic.startNotifications();
 
