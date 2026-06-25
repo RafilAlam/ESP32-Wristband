@@ -12,6 +12,9 @@
 #define SERVICE_UUID "03e0be01-38fe-41c8-a7e5-c294732282b7"
 #define CHARACTERISTIC_UUID "d5b00152-835a-4bf0-91c6-d9e15ebb270c"
 
+int ResetPin = 4;
+int BuzzerPin = 0;
+
 BLECharacteristic *pCharacteristic;
 bool deviceConnected = false;
 
@@ -25,11 +28,22 @@ class MyServerCallbacks: public BLEServerCallbacks {
   }
 };
 
+class MyCharacteristicCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    String value = pCharacteristic->getValue();
+    if (value.length() > 0) {
+      int command = value[0];
+      if (command == 1) {
+        digitalWrite(BuzzerPin, 1);
+        delay(20);
+        digitalWrite(BuzzerPin, 0);
+      }
+    }
+  }
+};
+
 LIS3DHTR<TwoWire> LIS;
 MAX30105 particleSensor;
-
-int ResetPin = 10;
-int BuzzerPin = 0;
 
 // Buzzer
 unsigned long lastbuzzertoggle = 0;
@@ -55,6 +69,8 @@ float beatsPerMinute;
 int beatAvg;
 
 // Bluetooth
+unsigned long UpdateRate = 200;
+unsigned long LastUpdate = 0;
 struct __attribute__((packed)) SensorPayload {
   float acceleration;
   uint8_t heartRate;
@@ -103,9 +119,11 @@ void setup() {
   pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ |
-                      BLECharacteristic::PROPERTY_NOTIFY
+                      BLECharacteristic::PROPERTY_NOTIFY |
+                      BLECharacteristic::PROPERTY_WRITE
                     );
 
+  pCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
   pCharacteristic->addDescriptor(new BLE2902());
   
   pService->start();
@@ -127,8 +145,8 @@ void loop() {
   if (checkForBeat(irValue) == true)
   {
     //We sensed a beat!
-    long delta = millis() - lastBeat;
-    lastBeat = millis();
+    long delta = mstime - lastBeat;
+    lastBeat = mstime;
 
     beatsPerMinute = 60 / (delta / 1000.0);
 
@@ -158,6 +176,7 @@ void loop() {
   //Serial.println();
 
   // Accelerometer
+  LastUpdate = mstime;
   float x = LIS.getAccelerationX();
   float y = LIS.getAccelerationY();
   float z = LIS.getAccelerationZ();
@@ -194,19 +213,19 @@ void loop() {
     buzzing = false;
   }
 
-  if (deviceConnected) {
-    myData.acceleration = mag;
-    myData.heartRate = beatAvg;
-    myData.spo2 = 0;
+  if (mstime - LastUpdate > UpdateRate) {
+    if (deviceConnected) {
+      myData.acceleration = mag;
+      myData.heartRate = beatAvg;
+      myData.spo2 = 0;
 
-    uint8_t* bytePointer = (uint8_t*)&myData;
-    size_t payloadSize = sizeof(SensorPayload);
-    
-    pCharacteristic->setValue(bytePointer, payloadSize);
-    pCharacteristic->notify();
+      uint8_t* bytePointer = (uint8_t*)&myData;
+      size_t payloadSize = sizeof(SensorPayload);
+      
+      pCharacteristic->setValue(bytePointer, payloadSize);
+      pCharacteristic->notify();
 
-    //Serial.println("Sent " + newValue);
+      //Serial.println("Sent " + newValue);
+    }
   }
-
-  delay(20);
 }
