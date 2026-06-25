@@ -12,8 +12,8 @@
 #define SERVICE_UUID "03e0be01-38fe-41c8-a7e5-c294732282b7"
 #define CHARACTERISTIC_UUID "d5b00152-835a-4bf0-91c6-d9e15ebb270c"
 
-int ResetPin = 4;
-int BuzzerPin = 0;
+int ResetPin = 0;
+int BuzzerPin = 4;
 
 LIS3DHTR<TwoWire> LIS;
 MAX30105 particleSensor;
@@ -22,6 +22,7 @@ MAX30105 particleSensor;
 unsigned long lastaccelupdate = 0;
 unsigned long maxfreefallTime = 1000;
 unsigned long lastfreefallTime = 0;
+unsigned long lastfall = 0;
 float freefallThreshold = 0.5;
 float impactThreshold = 5.0;
 float mag = 0;
@@ -46,14 +47,14 @@ struct BuzzerPattern {
   unsigned long lastToggle;
 };
 
-BuzzerPattern alarmPattern  = { {0, 20}, 1, 0, 0};
-BuzzerPattern remindPattern = { {0, 20, 40, 20}, 4, 0, 0};
-BuzzerPattern pingPattern   = { {0, 20}, 2, 0, 0};
+BuzzerPattern alarmPattern  = { {0, 50}, 2, 0, 0};
+BuzzerPattern remindPattern = { {0, 100, 200, 100}, 4, 0, 0};
+BuzzerPattern pingPattern   = { {0, 30}, 2, 0, 0};
 
 void updateBuzzer(unsigned long mstime) {
   BuzzerPattern* activePattern = NULL;
 
-  if (fallen) {
+  if (fallen && mstime - lastfall > 5000) {
     currentBuzzerState = BUZZER_ALARM;
   } else if (currentBuzzerState == BUZZER_ALARM) {
     currentBuzzerState = BUZZER_IDLE;
@@ -124,9 +125,15 @@ class MyCharacteristicCallbacks : public BLECharacteristicCallbacks {
     String value = pCharacteristic->getValue();
     if (value.length() > 0) {
       int command = value[0];
-      if (command == 1) {
-        pingPattern.currentStep = 0;
-        currentBuzzerState = BUZZER_PING;
+      switch(command) {
+        case 1:
+          pingPattern.currentStep = 0;
+          currentBuzzerState = BUZZER_PING;
+          break;
+        case 2:
+          pingPattern.currentStep = 0;
+          currentBuzzerState = BUZZER_REMIND;
+          return;
       }
     }
   }
@@ -253,15 +260,20 @@ void loop() {
     if (freefalling && mag > impactThreshold) {
       fallen = true;
       freefalling = false;
+      lastfall = mstime;
+      pingPattern.currentStep = 0;
+      currentBuzzerState = BUZZER_PING;
     }
   }
 
   updateBuzzer(mstime);
 
   if (digitalRead(ResetPin) == 0) {
+    if (fallen) {
+      pingPattern.currentStep = 0;
+      currentBuzzerState = BUZZER_PING;
+    }
     fallen = false;
-    currentBuzzerState = BUZZER_IDLE;
-    digitalWrite(BuzzerPin, 0);
   }
 
   if (mstime - LastUpdate > 200) {
