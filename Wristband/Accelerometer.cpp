@@ -15,6 +15,97 @@
 int ResetPin = 4;
 int BuzzerPin = 0;
 
+LIS3DHTR<TwoWire> LIS;
+MAX30105 particleSensor;
+
+// Accelerometer
+unsigned long lastaccelupdate = 0;
+unsigned long maxfreefallTime = 1000;
+unsigned long lastfreefallTime = 0;
+float freefallThreshold = 0.5;
+float impactThreshold = 5.0;
+float mag = 0;
+
+bool fallen = false;
+bool freefalling = false;
+
+// Buzzer
+enum BuzzerState {
+  BUZZER_IDLE,
+  BUZZER_ALARM,
+  BUZZER_REMIND,
+  BUZZER_PING
+};
+
+BuzzerState currentBuzzerState = BUZZER_IDLE;
+
+struct BuzzerPattern {
+  uint16_t intervals[6];
+  uint16_t totalSteps;
+  uint16_t currentStep;
+  unsigned long lastToggle;
+};
+
+BuzzerPattern alarmPattern  = { {0, 20}, 1, 0, 0};
+BuzzerPattern remindPattern = { {0, 20, 40, 20}, 4, 0, 0};
+BuzzerPattern pingPattern   = { {0, 20}, 2, 0, 0};
+
+void updateBuzzer(unsigned long mstime) {
+  BuzzerPattern* activePattern = NULL;
+
+  if (fallen) {
+    currentBuzzerState = BUZZER_ALARM;
+  } else if (currentBuzzerState == BUZZER_ALARM) {
+    currentBuzzerState = BUZZER_IDLE;
+    digitalWrite(BuzzerPin, 0);
+  }
+
+  switch(currentBuzzerState) {
+    case BUZZER_ALARM:       activePattern = &alarmPattern; break;
+    case BUZZER_REMIND:     activePattern = &remindPattern; break;
+    case BUZZER_PING:  activePattern = &pingPattern; break;
+    default:
+      digitalWrite(BuzzerPin, 0);
+      return;
+  }
+
+  if (mstime - activePattern->lastToggle >= activePattern->intervals[activePattern->currentStep]) {
+    activePattern->lastToggle = mstime;
+
+    bool buzzerOn = (activePattern->currentStep % 2 == 0);
+    digitalWrite(BuzzerPin, buzzerOn);
+
+    activePattern->currentStep++;
+
+    if (activePattern->currentStep >= activePattern->totalSteps) {
+      activePattern->currentStep = 0;
+
+      if (currentBuzzerState == BUZZER_PING || currentBuzzerState == BUZZER_REMIND) {
+        currentBuzzerState = BUZZER_IDLE;
+        digitalWrite(BuzzerPin, 0);
+      }
+    }
+  }
+}
+
+// Pulse Sensor
+const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
+byte rates[RATE_SIZE]; //Array of heart rates
+byte rateSpot = 0;
+long lastBeat = 0; //Time at which the last beat occurred
+
+float beatsPerMinute;
+int beatAvg;
+
+// Bluetooth
+unsigned long LastUpdate = 0;
+struct __attribute__((packed)) SensorPayload {
+  bool fallen;
+  uint8_t heartRate;
+};
+
+SensorPayload myData;
+
 BLECharacteristic *pCharacteristic;
 bool deviceConnected = false;
 
@@ -34,51 +125,12 @@ class MyCharacteristicCallbacks : public BLECharacteristicCallbacks {
     if (value.length() > 0) {
       int command = value[0];
       if (command == 1) {
-        Serial.println("Ping!");
-        digitalWrite(BuzzerPin, 1);
-        delay(20);
-        digitalWrite(BuzzerPin, 0);
+        pingPattern.currentStep = 0;
+        currentBuzzerState = BUZZER_PING;
       }
     }
   }
 };
-
-LIS3DHTR<TwoWire> LIS;
-MAX30105 particleSensor;
-
-// Buzzer
-unsigned long lastbuzzertoggle = 0;
-unsigned long buzzpulsewidth = 50;
-bool buzzing = false;
-
-// Accelerometer
-unsigned long maxfreefallTime = 1000;
-unsigned long lastfreefallTime = 0;
-float freefallThreshold = 0.5;
-float impactThreshold = 5.0;
-
-bool fallen = false;
-bool freefalling = false;
-
-// Pulse Sensor
-const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
-byte rates[RATE_SIZE]; //Array of heart rates
-byte rateSpot = 0;
-long lastBeat = 0; //Time at which the last beat occurred
-
-float beatsPerMinute;
-int beatAvg;
-
-// Bluetooth
-unsigned long UpdateRate = 200;
-unsigned long LastUpdate = 0;
-struct __attribute__((packed)) SensorPayload {
-  float acceleration;
-  uint8_t heartRate;
-  uint8_t spo2;
-};
-
-SensorPayload myData;
 
 unsigned long mstime = 0;
 void setup() {
@@ -177,48 +229,46 @@ void loop() {
   //Serial.println();
 
   // Accelerometer
-  float x = LIS.getAccelerationX();
-  float y = LIS.getAccelerationY();
-  float z = LIS.getAccelerationZ();
-  float mag = sqrt(x*x + y*y + z*z);
-  
-  //Serial.print(0);
-  //Serial.print(" ");
-  //Serial.println(18);
+  if (mstime - lastaccelupdate > 20) {
+    lastaccelupdate = mstime;
+    float x = LIS.getAccelerationX();
+    float y = LIS.getAccelerationY();
+    float z = LIS.getAccelerationZ();
+    mag = sqrt(x*x + y*y + z*z);
+    
+    //Serial.print(0);
+    //Serial.print(" ");
+    //Serial.println(18);
 
-  //Serial.print("magnitude:"); Serial.println(mag);
-  if (mag < freefallThreshold) {
-    freefalling = true;
-    lastfreefallTime = mstime;
+    //Serial.print("magnitude:"); Serial.println(mag);
+    if (mag < freefallThreshold) {
+      freefalling = true;
+      lastfreefallTime = mstime;
+    }
+
+    if (mstime - lastfreefallTime > maxfreefallTime) {
+      freefalling = false;
+    }
+
+    if (freefalling && mag > impactThreshold) {
+      fallen = true;
+      freefalling = false;
+    }
   }
 
-  if (mstime - lastfreefallTime > maxfreefallTime) {
-    freefalling = false;
-  }
-
-  if (freefalling && mag > impactThreshold) {
-    fallen = true;
-    freefalling = false;
-  }
-
-  if (fallen && mstime - lastbuzzertoggle > buzzpulsewidth) {
-    lastbuzzertoggle = mstime;
-    buzzing = !buzzing;
-    digitalWrite(BuzzerPin, buzzing);
-  }
+  updateBuzzer(mstime);
 
   if (digitalRead(ResetPin) == 0) {
-    digitalWrite(BuzzerPin, 0);
     fallen = false;
-    buzzing = false;
+    currentBuzzerState = BUZZER_IDLE;
+    digitalWrite(BuzzerPin, 0);
   }
 
-  if (mstime - LastUpdate > UpdateRate) {
+  if (mstime - LastUpdate > 200) {
     LastUpdate = mstime;
     if (deviceConnected) {
-      myData.acceleration = mag;
+      myData.fallen = fallen;
       myData.heartRate = beatAvg;
-      myData.spo2 = 0;
 
       uint8_t* bytePointer = (uint8_t*)&myData;
       size_t payloadSize = sizeof(SensorPayload);

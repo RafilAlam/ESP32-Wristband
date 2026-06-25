@@ -8,6 +8,7 @@
         html { -ms-overflow-style: none; scrollbar-width: none; }
         body { font-family: Arial, sans-serif; color: rgb(169, 106, 102); text-align: left; background: #d1c9c9; padding: 50px; }
         h1 { font-size: 50px; font-family: Arial; font-weight: bold; -webkit-text-stroke: 2px rgb(51, 39, 26); margin: 0px;}
+        h2 { font-size: 40px; font-family: Verdana; font-weight: bold; -webkit-text-stroke: 2px rgb(51, 39, 26); }
         .horizontal-container { display: flex; align-items: center; }
         .reminder { display: flex; width: auto; padding: 5px; font-size: 20px; font-weight: bold; letter-spacing: 1px; background: rgb(169, 106, 102); border-radius: 12px; border: 2px solid black; }
         .datetime { font-size: 15px; font-weight: bold; margin: 0px 5px; border-radius: 5px; background: rgb(93, 62, 60); color: #d1c9c9; }
@@ -19,6 +20,8 @@
         #datetime { display: flex; flex-direction: column; gap: 5px; width: auto; }
         #bpmvalue { font-size: 200px; }
         #status { color: #666; font-style: italic; margin: 0px; letter-spacing: 1px; font-weight: bold; }
+        #emergencypopup { visibility: hidden; text-align: center; z-index: 0; width:100%; position: fixed; left: 50%; bottom: 50%; transform: translate(-50%); background: rgba(19, 16, 14, 0.61); border: 2px solid black; border-radius: 5px; }
+        #emergencysubtext { font-family: Verdana; font-size: 20px; font-weight: bolder; -webkit-text-stroke: 1px rgb(51, 39, 26); }
     </style>
 </head>
 <body>
@@ -35,6 +38,11 @@
         <button id="remindercreateBtn">+ Create Reminder</button>
     </div>
 
+    <div id="emergencypopup">
+        <h2>FALL DETECTED!</h2>
+        <p id="emergencysubtext">Emergency Contacts have been notified.</p>
+    </div>
+
     <script>
         const SERVICE_UUID = "03e0be01-38fe-41c8-a7e5-c294732282b7";
         const CHARACTERISTIC_UUID = "d5b00152-835a-4bf0-91c6-d9e15ebb270c";
@@ -44,14 +52,15 @@
         const remindercreateBtn = document.getElementById('remindercreateBtn');
         const statusText = document.getElementById('status');
         const bpmDisplay = document.getElementById('bpmvalue');
+        const emergencyPopup = document.getElementById('emergencypopup')
 
-        const pCharacteristic = null;
+        let characteristic = null;
 
         async function pingBuzzer() {
             try {
-                if (pCharacteristic) {
+                if (characteristic) {
                     const data = new Uint8Array([1]);
-                    await pCharacteristic.writeValue(data);
+                    await characteristic.writeValue(data);
                     console.log("Sent buzz command to ESP32!");
                 }
             } catch (error) {
@@ -74,7 +83,7 @@
 
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
-                const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
                 statusText.innerText = "Connected";
 
@@ -85,11 +94,15 @@
                 characteristic.addEventListener('characteristicvaluechanged', (event) => {
                     const value = event.target.value;
 
-                    const acceleration = value.getFloat32(0, true);
-                    const heartRate = value.getUint8(4);
-                    const spo2 = value.getUint8(5);
+                    const fallen = value.getUint8(0) !== 0;
+                    const heartRate = value.getUint8(1);
 
                     bpmDisplay.innerText = heartRate;
+                    if (fallen) {
+                        emergencyPopup.style.visibility = "visible";
+                    } else {
+                        emergencyPopup.style.visibility = "hidden";
+                    }
                 });
 
                 device.addEventListener('gattserverdisconnected', () => {
