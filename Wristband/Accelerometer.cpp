@@ -34,6 +34,7 @@ class MyCharacteristicCallbacks : public BLECharacteristicCallbacks {
     if (value.length() > 0) {
       int command = value[0];
       if (command == 1) {
+        Serial.println("Ping!");
         digitalWrite(BuzzerPin, 1);
         delay(20);
         digitalWrite(BuzzerPin, 0);
@@ -176,7 +177,6 @@ void loop() {
   //Serial.println();
 
   // Accelerometer
-  LastUpdate = mstime;
   float x = LIS.getAccelerationX();
   float y = LIS.getAccelerationY();
   float z = LIS.getAccelerationZ();
@@ -214,6 +214,7 @@ void loop() {
   }
 
   if (mstime - LastUpdate > UpdateRate) {
+    LastUpdate = mstime;
     if (deviceConnected) {
       myData.acceleration = mag;
       myData.heartRate = beatAvg;
