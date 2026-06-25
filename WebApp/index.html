@@ -55,11 +55,13 @@
         const emergencyPopup = document.getElementById('emergencypopup')
 
         let characteristic = null;
+        let activeReminders = [];
+        let remindercount = 0;
 
-        async function pingBuzzer() {
+        async function pingBuzzer(mode) {
             try {
                 if (characteristic) {
-                    const data = new Uint8Array([1]);
+                    const data = new Uint8Array([mode]);
                     await characteristic.writeValue(data);
                     console.log("Sent buzz command to ESP32!");
                 }
@@ -89,7 +91,7 @@
 
                 await characteristic.startNotifications();
 
-                pingBuzzer();
+                pingBuzzer(1);
 
                 characteristic.addEventListener('characteristicvaluechanged', (event) => {
                     const value = event.target.value;
@@ -120,6 +122,7 @@
         remindercreateBtn.addEventListener('click', async () => {
             const newReminder = document.createElement('div');
             newReminder.className = 'reminder';
+            newReminder.id = remindercount;
             newReminder.innerHTML = `
                 <div id="remindername" contenteditable="true"; placeholder="Reminder Name">Reminder Name</div>
                 <div id="datetime">
@@ -127,9 +130,49 @@
                     <input type="time" class="datetime" id="time" name="time" style="width: auto;">
                 </div>
             `;
+            activeReminders[remindercount++] = {
+                element: newReminder,
+                timestamp: null,
+                triggered: false
+            };
+            newReminder.lastElementChild.children[0].addEventListener('change', (event) => {
+                const dateStr = newReminder.lastElementChild.children[0].value;
+                const timeStr = newReminder.lastElementChild.children[1].value;
+                if (!dateStr || !timeStr) return;
+
+                activeReminders[reminder.id].timestamp = new Date(`${dateStr}T${timeStr}`);
+            })
+            newReminder.lastElementChild.children[1].addEventListener('change', (event) => {
+                const dateStr = newReminder.lastElementChild.children[0].value;
+                const timeStr = newReminder.lastElementChild.children[1].value;
+                if (!dateStr || !timeStr) return;
+
+                activeReminders[newReminder.id].timestamp = new Date(`${dateStr}T${timeStr}`);
+            })
 
             reminderbox.prepend(newReminder);
         })
+
+        setInterval(() => {
+            if (!characteristic) return;
+
+            const now = Date.now();
+
+            activeReminders.forEach((reminder) => {
+                if (reminder.timestamp != null && now >= reminder.timestamp && !reminder.triggered) {
+                    reminder.triggered = true;
+
+                    console.log("Reminder time reached! Pinging ESP32...");
+                    pingBuzzer(2);
+                    
+                    reminder.element.style.backgroundColor = "#de704b";
+              
+                    reminder.element.addEventListener('click', async () => {
+                        reminder.element.remove();
+                    })
+                }
+            })
+        }, 1000);
     </script>
 </body>
 </html>
