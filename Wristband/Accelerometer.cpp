@@ -23,6 +23,9 @@ unsigned long lastaccelupdate = 0;
 unsigned long maxfreefallTime = 1000;
 unsigned long lastfreefallTime = 0;
 unsigned long lastfall = 0;
+unsigned long lastbuttonpress = 0;
+bool emergencybuttonpending1 = false;
+bool emergencybuttonpending2 = false;
 float freefallThreshold = 0.5;
 float impactThreshold = 5.0;
 float mag = 0;
@@ -54,7 +57,9 @@ BuzzerPattern pingPattern   = { {0, 30}, 2, 0, 0};
 void updateBuzzer(unsigned long mstime) {
   BuzzerPattern* activePattern = NULL;
 
-  if (fallen && mstime - lastfall > 5000) {
+  if (fallen && emergencybuttonpending2) {
+    currentBuzzerState = BUZZER_ALARM;
+  } if (fallen && mstime - lastfall > 5000 && !emergencybuttonpending2) {
     currentBuzzerState = BUZZER_ALARM;
   } else if (currentBuzzerState == BUZZER_ALARM) {
     currentBuzzerState = BUZZER_IDLE;
@@ -269,11 +274,31 @@ void loop() {
   updateBuzzer(mstime);
 
   if (digitalRead(ResetPin) == 0) {
-    if (fallen) {
+    const unsigned long dt = mstime - lastbuttonpress;
+    if (fallen && !emergencybuttonpending2) {
       pingPattern.currentStep = 0;
       currentBuzzerState = BUZZER_PING;
+      fallen = false;
+    } else if (!fallen && !emergencybuttonpending1 && !emergencybuttonpending2) {
+      lastbuttonpress = mstime;
+      emergencybuttonpending1 = true;
+      Serial.println("emergencystart");
+    } else if (emergencybuttonpending2 && dt > 800) {
+      fallen = true;
+      freefalling = false;
+      lastfall = mstime;
+      emergencybuttonpending1 = false;
+      pingPattern.currentStep = 0;
+      Serial.println("emergency2");
+      currentBuzzerState = BUZZER_PING;
+    } else if (emergencybuttonpending1 && dt > 400) {
+      pingPattern.currentStep = 0;
+      currentBuzzerState = BUZZER_PING;
+      emergencybuttonpending2 = true;
+      Serial.println("emergency1");
     }
-    fallen = false;
+  } else {
+    emergencybuttonpending2 = false;
   }
 
   if (mstime - LastUpdate > 200) {
